@@ -6,41 +6,42 @@ from typing import List, Optional
 
 class JobStatus(Enum):
     """
-    Represents the status of a job in the CI system.
+    this enum defines every possible state a build job can be in.
     """
-    PENDING = auto()   # job created, waiting for resources
-    PREPARING = auto() # system is setting up the Jail/Zfs
-    RUNNING = auto()   # the user's script is executing
-    SUCCESS = auto()   # the scriping finishes with exit code 0
-    FAILED = auto()    # the script finished with exit code > 0
-    ERROR = auto()     # the CI system itself crashed (infra failure)
+    PENDING = auto()
+    PENDING = auto()
+    RUNNING = auto()
+    SUCCESS = auto()
+    FAILURE = auto()
+    ERROR = auto()
+
 
 @dataclass
 class Job:
     """
-    holds all info about a single build request.
+    holds all info about a single build request
     """
-
     name: str
     commands: List[str]
+    artifacts: List[str] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     status: JobStatus = JobStatus.PENDING
     log_path: Optional[str] = None
     start_time: float = 0.0
     end_time: float = 0.0
 
-    # helper methods
-    def start(self):
+    # Helper Methods (state transitions)
+    def state(self):
         """
-        transitions the job to the `running` state.
-        records the exact time it started.
+        transitios the job to the RUNNING state
+        records the exacts time is stated.
         """
         self.status = JobStatus.RUNNING
         self.start_time = time.time()
 
-    def complete(self, success: bool):
+    def complete(self, success: bool)
         """
-        transitions the job to a terminal state (success or failed)
+        transitions the job to a terminal state (SUCCESS or FAILED)
         records the exact time it finished.
         """
         if success:
@@ -53,7 +54,7 @@ class Job:
     @property
     def duration(self) -> float:
         """
-        calcs how many seconds the job ran
+        calculates how many seconds the job ran.
         """
         if self.end_time == 0.0:
             return 0.0
