@@ -5,7 +5,6 @@ from pathlib import Path
 def create_structure():
     root = Path.cwd()
 
-    # Source / package directories
     src_dirs = [
         root / "bastion",
         root / "bastion" / "core",
@@ -13,7 +12,6 @@ def create_structure():
         root / "tests",
     ]
 
-    # Runtime / variable directories
     var_dirs = [
         root / "var",
         root / "var" / "logs",
@@ -23,7 +21,6 @@ def create_structure():
 
     print(f"Initializing Bastion CI Project at: {root}")
 
-    # Create directories
     for d in src_dirs + var_dirs:
         try:
             d.mkdir(parents=True, exist_ok=True)
@@ -32,14 +29,12 @@ def create_structure():
             print(f" [ERR] Permission denied: {d}")
             sys.exit(1)
 
-    # Mark Python packages
     for d in src_dirs:
         init_file = d / "__init__.py"
         if not init_file.exists():
             init_file.touch()
             print(f" [OK] Touched: {init_file.relative_to(root)}")
 
-    # Create .gitignore
     gitignore = root / ".gitignore"
     if not gitignore.exists():
         gitignore.write_text(
