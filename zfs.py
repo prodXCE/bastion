@@ -1,23 +1,30 @@
-import logging
-import subprocess
-import sys
+import logging     
+import subprocess  
 
 def run_command(cmd):
-    logging.info(f"Executing: {cmd}")
+    logging.info(f"ZFS: {cmd}")
+    
     try:
-        subprocess.run(cmd, shell=True, check=True, text=True, capture_output=True)
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            check=True,
+            text=True,
+            capture_output=True
+        )
+        return result.stdout
     except subprocess.CalledProcessError as e:
-        error_msg = f"ZFS command failed! Error:\n{e.stderr.strip()}"
-        logging.error(error.msg)
+        error_msg = f"ZFS command failed: {e.stderr.strip()}"
+        logging.error(error_msg)
         raise RuntimeError(error_msg)
 
 def create_dataset(dataset_name):
     run_command(f"zfs create -p {dataset_name}")
-    logging.info(f"Created dataset: {dataset_name}")
+    logging.info(f"Dataset created: {dataset_name}")
 
 def create_snapshot(dataset_name, snapshot_name):
     run_command(f"zfs snapshot {dataset_name}@{snapshot_name}")
-    logging.info(f"Created snapshot: {dataset_name}@{snapshot_name}")
+    logging.info(f"Snapshot created: {dataset_name}@{snapshot_name}")
 
 def clone_snapshot(snapshot_path, clone_name):
     run_command(f"zfs clone {snapshot_path} {clone_name}")
@@ -25,7 +32,4 @@ def clone_snapshot(snapshot_path, clone_name):
 
 def destroy_dataset(dataset_name):
     run_command(f"zfs destroy -R {dataset_name}")
-    logging.info(f"Destroyed dataset: {dataset_name}")
-
-
-
+    logging.info(f"Dataset destroyed: {dataset_name}")
