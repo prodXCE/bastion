@@ -167,3 +167,141 @@ sudo python3 bastion.py submit <job_id> "<command>"
 # Example:
 sudo python3 bastion.py submit local-test-1 "ls -la"
 ```
+
+
+
+INSTRUCT : 
+Step By Step Setup For Option 1
+Step 1: Find the IP addresses of all your machines
+
+On MacOS:
+
+Bash
+
+ifconfig | grep "inet " | grep -v 127.0.0.1
+# Look for something like 192.168.64.1
+On each FreeBSD VM:
+
+Bash
+
+ifconfig | grep "inet " | grep -v 127.0.0.1
+# Look for something like 192.168.64.2 and 192.168.64.3
+Write these down:
+
+text
+
+MacOS       → 192.168.64.1  (example, yours will differ)
+FreeBSD VM1 → 192.168.64.2
+FreeBSD VM2 → 192.168.64.3
+Step 2: Put the right files on each machine
+
+On MacOS — you only need:
+
+text
+
+api.py
+db.py
+dashboard.py
+requirements_mac.txt
+On each FreeBSD VM — you need everything:
+
+text
+
+worker.py
+runner.py
+jail.py
+zfs.py
+bastion.py
+db.py (not used directly but imported)
+The simplest way to transfer files:
+
+Bash
+
+# From MacOS, copy files to FreeBSD VM 1
+scp api.py db.py dashboard.py your_username@192.168.64.1:~/bastion/
+
+# Copy worker files to FreeBSD VM 1
+scp worker.py runner.py jail.py zfs.py bastion.py your_username@192.168.64.2:~/bastion/
+
+# Copy worker files to FreeBSD VM 2
+scp worker.py runner.py jail.py zfs.py bastion.py your_username@192.168.64.3:~/bastion/
+Step 3: Install dependencies on each machine
+
+On MacOS:
+
+Bash
+
+pip3 install fastapi uvicorn pydantic requests streamlit pandas
+On each FreeBSD VM:
+
+Bash
+
+pkg install python3 py39-pip
+pip install requests
+Step 4: Change the API_URL in worker.py on both FreeBSD VMs
+
+Open worker.py on each FreeBSD VM and change:
+
+Python
+
+# Change this line
+API_URL = "http://localhost:8080"
+
+# To point to your MacOS machine's IP
+API_URL = "http://192.168.64.1:8080"
+Do the same in runner.py:
+
+Python
+
+# Change this line
+API_URL = "http://localhost:8080"
+
+# To
+API_URL = "http://192.168.64.1:8080"
+Step 5: Initialize Bastion on each FreeBSD VM
+
+On FreeBSD VM 1:
+
+Bash
+
+cd ~/bastion
+sudo python3 bastion.py init
+sudo python3 bastion.py setup-network
+sudo python3 bastion.py update-base git ca_root_nss
+On FreeBSD VM 2:
+
+Bash
+
+cd ~/bastion
+sudo python3 bastion.py init
+sudo python3 bastion.py setup-network
+sudo python3 bastion.py update-base git ca_root_nss
+Step 6: Start everything
+
+On MacOS Terminal 1:
+
+Bash
+
+cd ~/bastion
+uvicorn api:app --host 0.0.0.0 --port 8080
+On MacOS Terminal 2:
+
+Bash
+
+cd ~/bastion
+streamlit run dashboard.py
+# Opens browser at http://localhost:8501
+On FreeBSD VM 1:
+
+Bash
+
+cd ~/bastion
+sudo python3 worker.py
+On FreeBSD VM 2:
+
+Bash
+
+cd ~/bastion
+sudo python3 worker.py
+Now you have two workers running in parallel. Jobs are distributed between them automatically.
+
