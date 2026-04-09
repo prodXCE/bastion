@@ -1,3 +1,4 @@
+# bastion.py
 import argparse
 import logging
 import os
@@ -7,135 +8,63 @@ import zfs
 import jail
 import runner
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-BASE_DATASET  = "zroot/bastion/base"
+BASE_DATASET = "zroot/bastion/base"
 SNAPSHOT_NAME = "fresh-install"
-API_URL       = "http://localhost:8080"
-
+API_URL = "http://localhost:8080"
 
 def populate_base_image(mount_path):
-    """
-    Downloads and extracts the FreeBSD base system into the dataset.
-    This is called by the init command.
-    """
-    # Get the running FreeBSD version and architecture
-    freebsd_version = subprocess.run(
-        "uname -r", shell=True, capture_output=True, text=True
-    ).stdout.strip()
-
-    arch = subprocess.run(
-        "uname -m", shell=True, capture_output=True, text=True
-    ).stdout.strip()
-
+    freebsd_version = subprocess.run("uname -r", shell=True, capture_output=True, text=True).stdout.strip()
+    arch = subprocess.run("uname -m", shell=True, capture_output=True, text=True).stdout.strip()
     logging.info(f"Detected FreeBSD {freebsd_version} on {arch}")
-
-    # Build the download URL
-    base_url = (
-        f"https://download.freebsd.org/releases/{arch}"
-        f"/{freebsd_version}/base.txz"
-    )
-
+    base_url = "http://ftpmirror.your.org/pub/FreeBSD/releases/arm64/15.0-RELEASE/base.txz"
     logging.info(f"Downloading FreeBSD base system from:")
     logging.info(f"  {base_url}")
     logging.info("This may take a few minutes...")
-
-    # Download
-    fetch_result = subprocess.run(
-        f"fetch -o /tmp/bastion_base.txz {base_url}",
-        shell=True
-    )
-
+    fetch_result = subprocess.run(f"fetch -o /tmp/bastion_base.txz {base_url}", shell=True)
     if fetch_result.returncode != 0:
         logging.error("Download failed. Check your internet connection.")
         logging.error(f"You can also manually download: {base_url}")
         logging.error(f"Then run: tar -xf base.txz -C {mount_path}")
         return False
-
     logging.info("Download complete. Extracting...")
-
-    # Extract
-    extract_result = subprocess.run(
-        f"tar -xf /tmp/bastion_base.txz -C {mount_path}",
-        shell=True
-    )
-
+    extract_result = subprocess.run(f"tar -xf /tmp/bastion_base.txz -C {mount_path}", shell=True)
     subprocess.run("rm -f /tmp/bastion_base.txz", shell=True)
-
     if extract_result.returncode != 0:
         logging.error("Extraction failed.")
         return False
-
     logging.info("FreeBSD base system extracted successfully.")
     return True
 
-
 def bootstrap_pkg_in_base(mount_path):
-    """
-    Bootstraps pkg inside the base image using a temporary jail.
-    Called after populate_base_image().
-    """
     temp_jail = "bastion-bootstrap"
-
     logging.info("Bootstrapping pkg inside base image...")
-
-    # Mount devfs — pkg needs /dev/null during installation
-    subprocess.run(
-        f"mount -t devfs devfs {mount_path}/dev",
-        shell=True,
-        check=True
-    )
-
-    # Copy resolv.conf so pkg can reach the internet
-    subprocess.run(
-        f"cp /etc/resolv.conf {mount_path}/etc/resolv.conf",
-        shell=True
-    )
-
-    # Start a temporary jail
-    result = subprocess.run(
-        f"jail -c name={temp_jail} path={mount_path} "
-        f"host.hostname=bastion-bootstrap ip4=inherit persist",
-        shell=True
-    )
-
+    subprocess.run(f"mount -t devfs devfs {mount_path}/dev", shell=True, check=True)
+    subprocess.run(f"cp /etc/resolv.conf {mount_path}/etc/resolv.conf", shell=True)
+    result = subprocess.run(f"jail -c name={temp_jail} path={mount_path} host.hostname=bastion-bootstrap ip4=inherit persist", shell=True)
     if result.returncode != 0:
         subprocess.run(f"umount {mount_path}/dev", shell=True)
         logging.error("Could not start bootstrap jail.")
         return False
-
     try:
-        # Bootstrap pkg
-        subprocess.run(
-            f"jexec {temp_jail} pkg bootstrap -y",
-            shell=True,
-            check=True
-        )
+        subprocess.run(f"jexec {temp_jail} pkg bootstrap -y", shell=True, check=True)
         logging.info("pkg bootstrapped successfully.")
         return True
-
     except subprocess.CalledProcessError:
         logging.error("pkg bootstrap failed.")
         return False
-
     finally:
         subprocess.run(f"jail -r {temp_jail}", shell=True)
         subprocess.run(f"umount {mount_path}/dev", shell=True)
 
-
 def main():
-    parser    = argparse.ArgumentParser(description="Bastion CI — Administration CLI")
+    parser = argparse.ArgumentParser(description="Bastion CI — Administration CLI")
     subparser = parser.add_subparsers(dest="command")
 
     subparser.add_parser("init", help="Initialize the ZFS base environment")
 
-    update_parser = subparser.add_parser(
-        "update-base",
-        help="Install packages into the base image"
-    )
+    update_parser = subparser.add_parser("update-base", help="Install packages into the base image")
     update_parser.add_argument("packages", nargs="+")
 
     spawn_parser = subparser.add_parser("spawn", help="Spawn an isolated jail")
@@ -158,80 +87,42 @@ def main():
 
     subparser.add_parser("list-teams", help="List all teams")
 
-    provision_parser = subparser.add_parser(
-        "provision-team-base",
-        help="Create a dedicated base image for a team"
-    )
+    provision_parser = subparser.add_parser("provision-team-base", help="Create a dedicated base image for a team")
     provision_parser.add_argument("team_id")
     provision_parser.add_argument("packages", nargs="*")
 
-    subparser.add_parser(
-        "setup-network",
-        help="Initialize the VNET bridge (run once, requires root)"
-    )
+    subparser.add_parser("setup-network", help="Initialize the VNET bridge")
 
     args = parser.parse_args()
 
-
     if args.command == "init":
         logging.info("Initializing Bastion base environment...")
-
         mount_path = f"/{BASE_DATASET}"
-
-        # Create the ZFS dataset
         zfs.create_dataset(BASE_DATASET)
-
-        # Create required empty directories
         for d in ["/dev", "/workspace", "/tmp"]:
             os.makedirs(f"{mount_path}{d}", exist_ok=True)
-
-        # Download and extract FreeBSD base into the dataset
         if not populate_base_image(mount_path):
             logging.error("Init failed at base system download step.")
             return
-
-        # Bootstrap pkg inside the base
         if not bootstrap_pkg_in_base(mount_path):
             logging.error("Init failed at pkg bootstrap step.")
             return
-
-        # Take the initial snapshot
         zfs.create_snapshot(BASE_DATASET, SNAPSHOT_NAME)
         logging.info("Done. Base snapshot is ready.")
         logging.info("Now run: sudo python3 bastion.py update-base git ca_root_nss")
 
-
     elif args.command == "update-base":
-        # THE FIX: use a running jail instead of pkg -r
-        mount_path      = f"/{BASE_DATASET}"
+        mount_path = f"/{BASE_DATASET}"
         packages_string = " ".join(args.packages)
-        temp_jail_name  = "bastion-update-base"
+        temp_jail_name = "bastion-update-base"
 
         logging.info(f"Installing packages into base image: {packages_string}")
         logging.info("Starting temporary jail for pkg install...")
 
-        # Mount devfs
-        subprocess.run(
-            f"mount -t devfs devfs {mount_path}/dev",
-            shell=True
-        )
+        subprocess.run(f"mount -t devfs devfs {mount_path}/dev", shell=True)
+        subprocess.run(f"cp /etc/resolv.conf {mount_path}/etc/resolv.conf", shell=True)
 
-        # Copy fresh resolv.conf
-        subprocess.run(
-            f"cp /etc/resolv.conf {mount_path}/etc/resolv.conf",
-            shell=True
-        )
-
-        # Start temporary jail on the base image directly
-        result = subprocess.run(
-            f"jail -c "
-            f"name={temp_jail_name} "
-            f"path={mount_path} "
-            f"host.hostname=bastion-update "
-            f"ip4=inherit "
-            f"persist",
-            shell=True
-        )
+        result = subprocess.run(f"jail -c name={temp_jail_name} path={mount_path} host.hostname=bastion-update ip4=inherit persist", shell=True)
 
         if result.returncode != 0:
             subprocess.run(f"umount {mount_path}/dev", shell=True)
@@ -239,47 +130,36 @@ def main():
             return
 
         try:
-            # Run pkg install INSIDE the running jail
-            install_result = subprocess.run(
-                f"jexec {temp_jail_name} pkg install -y {packages_string}",
-                shell=True
-            )
-
+            install_result = subprocess.run(f"jexec {temp_jail_name} pkg install -y {packages_string}", shell=True)
             if install_result.returncode != 0:
                 logging.error("pkg install failed.")
                 return
-
             logging.info(f"Successfully installed: {packages_string}")
 
         finally:
-            # Always clean up the temporary jail
             subprocess.run(f"jail -r {temp_jail_name}", shell=True)
             subprocess.run(f"umount {mount_path}/dev", shell=True)
 
-        # Take a new snapshot to save the changes
         logging.info("Taking new snapshot...")
+        subprocess.run(f"zfs destroy {BASE_DATASET}@{SNAPSHOT_NAME}", shell=True, capture_output=True)
         zfs.create_snapshot(BASE_DATASET, SNAPSHOT_NAME)
         logging.info(f"Base image updated with: {packages_string}")
-
 
     elif args.command == "setup-network":
         jail.setup_host_network()
         logging.info("Host network ready for VNET jails.")
 
-
     elif args.command == "spawn":
         snapshot_path = f"{BASE_DATASET}@{SNAPSHOT_NAME}"
         clone_dataset = f"zroot/bastion/builds/{args.job_id}"
-        mount_path    = f"/{clone_dataset}"
+        mount_path = f"/{clone_dataset}"
         zfs.create_dataset("zroot/bastion/builds")
         zfs.clone_snapshot(snapshot_path, clone_dataset)
         jail.create(args.job_id, mount_path)
         logging.info(f"Environment {args.job_id} ready.")
 
-
     elif args.command == "run":
         jail.execute(args.job_id, args.cmd)
-
 
     elif args.command == "clean":
         clone_path = f"zroot/bastion/builds/{args.job_id}"
@@ -287,17 +167,12 @@ def main():
         zfs.destroy_dataset(clone_path)
         logging.info(f"{args.job_id} destroyed.")
 
-
     elif args.command == "submit":
         runner.execute_pipeline(args.job_id, args.repo_url, args.cmd)
 
-
     elif args.command == "create-team":
         try:
-            response = requests.post(
-                f"{API_URL}/teams",
-                json={"team_name": args.team_name}
-            )
+            response = requests.post(f"{API_URL}/teams", json={"team_name": args.team_name})
             data = response.json()
             print("\n" + "=" * 50)
             print("  TEAM REGISTERED")
@@ -311,22 +186,20 @@ def main():
         except requests.exceptions.ConnectionError:
             logging.error("Cannot reach the API. Is it running?")
 
-
     elif args.command == "list-teams":
         try:
             response = requests.get(f"{API_URL}/teams")
-            data     = response.json()
+            data = response.json()
             print(f"\nTeams ({data['total']}):")
             for team in data["teams"]:
                 print(f"  {team['team_id']}  |  {team['team_name']}  |  {team['created_at']}")
         except requests.exceptions.ConnectionError:
             logging.error("Cannot reach the API.")
 
-
     elif args.command == "provision-team-base":
         team_dataset = f"zroot/bastion/teams/{args.team_id}/base"
-        team_mount   = f"/{team_dataset}"
-        temp_jail    = f"bastion-provision-{args.team_id}"
+        team_mount = f"/{team_dataset}"
+        temp_jail = f"bastion-provision-{args.team_id}"
 
         zfs.create_dataset(team_dataset)
 
@@ -338,16 +211,9 @@ def main():
         if args.packages:
             packages_string = " ".join(args.packages)
             subprocess.run(f"mount -t devfs devfs {team_mount}/dev", shell=True)
-            subprocess.run(
-                f"jail -c name={temp_jail} path={team_mount} "
-                f"host.hostname={temp_jail} ip4=inherit persist",
-                shell=True
-            )
+            subprocess.run(f"jail -c name={temp_jail} path={team_mount} host.hostname={temp_jail} ip4=inherit persist", shell=True)
             try:
-                subprocess.run(
-                    f"jexec {temp_jail} pkg install -y {packages_string}",
-                    shell=True
-                )
+                subprocess.run(f"jexec {temp_jail} pkg install -y {packages_string}", shell=True)
             finally:
                 subprocess.run(f"jail -r {temp_jail}", shell=True)
                 subprocess.run(f"umount {team_mount}/dev", shell=True)
@@ -355,10 +221,8 @@ def main():
         zfs.create_snapshot(team_dataset, SNAPSHOT_NAME)
         logging.info(f"Team {args.team_id} base ready.")
 
-
     else:
         parser.print_help()
-
 
 if __name__ == "__main__":
     main()
